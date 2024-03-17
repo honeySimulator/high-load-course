@@ -53,8 +53,11 @@ class ExternalServicesConfig {
     }
 
     @Bean(PRIMARY_PAYMENT_BEAN)
-    fun fastExternalService() =
-        PaymentExternalServiceImpl(
-            accountProps_4,
+    fun fastExternalService(): PaymentExternalServiceImpl {
+        // Возвращаем экземпляр PaymentExternalServiceImpl с двумя конфигурациями аккаунтов
+        return PaymentExternalServiceImpl(
+            defaultProperties = accountProps_2, // используем accountProps_2 как основные свойства
+            alternativeProperties = accountProps_1 // используем accountProps_1 как альтернативные свойства
         )
+    }
 }
