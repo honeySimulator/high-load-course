@@ -11,18 +11,11 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import ru.quipy.core.EventSourcingService
 import ru.quipy.payments.api.PaymentAggregate
-import ru.quipy.payments.logic.PaymentAggregateState
 import java.net.SocketTimeoutException
 import java.time.Duration
 import java.util.*
 import java.util.concurrent.Executors
 
-
-
-
-
-
-// Advice: always treat time as a Duration
 class PaymentExternalServiceImpl(
     private val defaultProperties: ExternalServiceProperties,
     private val alternativeProperties: ExternalServiceProperties
@@ -35,10 +28,6 @@ class PaymentExternalServiceImpl(
         val emptyBody = RequestBody.create(null, ByteArray(0))
         val mapper = ObjectMapper().registerKotlinModule()
     }
-
-
-//    private val serviceName = properties.serviceName
-//    private val accountName = properties.accountName
 
 
     private val defaultRateLimiter: RateLimiter = RateLimiter.of("defaultRateLimiter", RateLimiterConfig.custom()
@@ -98,7 +87,7 @@ class PaymentExternalServiceImpl(
                 val supplier = RateLimiter.decorateCheckedSupplier(rateLimiter) {
                     executePaymentRequest(paymentId, amount)
                 }
-                Result.success(supplier.get()) // Используйте get() для получения результата
+                Result.success(supplier.get())
             } catch (e: Exception) {
                 Result.failure(e)
             }
