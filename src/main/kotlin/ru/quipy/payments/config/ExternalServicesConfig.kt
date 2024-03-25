@@ -61,3 +61,11 @@ class ExternalServicesConfig {
         )
     }
 }
+//@Bean(PRIMARY_PAYMENT_BEAN)
+//fun fastExternalService(): PaymentExternalServiceImpl {
+//    // Две конфигурации аккаунта
+//    return PaymentExternalServiceImpl(
+//        properties = accountProps_2
+//    )
+//}
+//}
