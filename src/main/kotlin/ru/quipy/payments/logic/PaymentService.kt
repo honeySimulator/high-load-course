@@ -1,5 +1,6 @@
 package ru.quipy.payments.logic
 
+import ru.quipy.common.utils.CoroutineRateLimiter
 import java.time.Duration
 import java.util.*
 
@@ -19,7 +20,7 @@ data class ExternalServiceProperties(
     val serviceName: String,
     val accountName: String,
     val parallelRequests: Int,
-    val rateLimitPerSec: Int,
+    val rateLimiter: CoroutineRateLimiter,
     val request95thPercentileProcessingTime: Duration = Duration.ofSeconds(11)
 )
 
