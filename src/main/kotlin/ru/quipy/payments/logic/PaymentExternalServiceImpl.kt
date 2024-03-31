@@ -2,18 +2,19 @@ package ru.quipy.payments.logic
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import kotlinx.coroutines.*
 import okhttp3.*
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
+import ru.quipy.common.utils.NonBlockingOngoingWindow
 import ru.quipy.core.EventSourcingService
 import ru.quipy.payments.api.PaymentAggregate
 import java.io.IOException
 import java.time.Duration
 import java.util.*
-import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 
 // Advice: always treat time as a Duration
@@ -30,6 +31,8 @@ class PaymentExternalServiceImpl(
         val emptyBody = RequestBody.create(null, ByteArray(0))
         val mapper = ObjectMapper().registerKotlinModule()
     }
+
+    val externalScope = CoroutineScope(Dispatchers.IO)
 
     @Autowired
     private lateinit var paymentESService: EventSourcingService<UUID, PaymentAggregate, PaymentAggregateState>
@@ -61,70 +64,81 @@ class PaymentExternalServiceImpl(
                 return
             } else {
                 // Use the second account to submit the request.
-                submitPaymentRequestWithProperties(alternativeProperties, paymentId, transactionId)
+                externalScope.launch {
+                    val response = submitPaymentRequestWithProperties(alternativeProperties, paymentId, transactionId)
+                    if (response != null) {
+                        paymentESService.update(paymentId) { currentState ->
+                            currentState.logProcessing(response.result, now(), UUID.randomUUID(), reason = response.message)
+                        }
+                    }
+                }
             }
         } else {
             // Use the first account to submit the request.
-            submitPaymentRequestWithProperties(defaultProperties, paymentId, transactionId)
+            externalScope.launch {
+                val response = submitPaymentRequestWithProperties(defaultProperties, paymentId, transactionId)
+                if (response != null) {
+                    paymentESService.update(paymentId) { currentState ->
+                        currentState.logProcessing(response.result, now(), UUID.randomUUID(), reason = response.message)
+                    }
+                }
+            }
         }
     }
 
-    private fun submitPaymentRequestWithProperties(
+    private suspend fun submitPaymentRequestWithProperties(
         properties: ExternalServiceProperties,
         paymentId: UUID,
         transactionId: UUID
-    ) {
+    ): ExternalSysResponse? {
+        // Try to acquire a window for the account.
+        val windowResponse = properties.nonBlockingWindow.putIntoWindow()
+        if (windowResponse !is NonBlockingOngoingWindow.WindowResponse.Success) {
+            logger.warn("[${properties.accountName}] Window is full for payment $paymentId, cannot submit request")
+            return null
+        }
+
         val request = Request.Builder().run {
             url("http://localhost:1234/external/process?serviceName=${properties.serviceName}&accountName=${properties.accountName}&transactionId=$transactionId")
             post(emptyBody)
         }.build()
 
-        // Use a CompletableFuture to handle the asynchronous request.
-        val future = CompletableFuture<ExternalSysResponse>()
+        // Use a withTimeout to handle the timeout.
+        return try {
+            withTimeout(paymentOperationTimeout.toMillis()) {
+                suspendCancellableCoroutine<ExternalSysResponse?> { cont ->
+                    client.newCall(request).enqueue(object : Callback {
+                        override fun onFailure(call: Call, e: IOException) {
+                            cont.resumeWithException(e)
+                        }
 
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                future.completeExceptionally(e)
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                val body = try {
-                    mapper.readValue(response.body?.string(), ExternalSysResponse::class.java)
-                } catch (e: Exception) {
-                    logger.error("[${properties.accountName}] [ERROR] Payment processed for txId: $transactionId, payment: $paymentId, result code: ${response.code}, reason: ${response.body?.string()}")
-                    ExternalSysResponse(false, e.message)
-                }
-
-                logger.warn("[${properties.accountName}] Payment processed for txId: $transactionId, payment: $paymentId, succeeded: ${body.result}, message: ${body.message}")
-
-                future.complete(body)
-            }
-        })
-
-        // Use a timeout to handle the case where the request takes too long.
-        future.orTimeout(paymentOperationTimeout.toMillis(), TimeUnit.MILLISECONDS)
-            .whenComplete { body, throwable ->
-                if (throwable is TimeoutException) {
-                    logger.error("[${properties.accountName}] Payment failed for txId: $transactionId, payment: $paymentId due to timeout.")
-                    paymentESService.update(paymentId) {
-                        it.logProcessing(false, now(), transactionId, reason = "Request timeout.")
-                    }
-                } else if (throwable != null) {
-                    logger.error(
-                        "[${properties.accountName}] Payment failed for txId: $transactionId, payment: $paymentId",
-                        throwable
-                    )
-                    paymentESService.update(paymentId) {
-                        it.logProcessing(false, now(), transactionId, reason = throwable.message)
-                    }
-                } else {
-                    paymentESService.update(paymentId) {
-                        it.logProcessing(body.result, now(), transactionId, reason = body.message)
-                    }
+                        override fun onResponse(call: Call, response: Response) {
+                            try {
+                                val body = mapper.readValue(response.body?.string(), ExternalSysResponse::class.java)
+                                logger.warn("[${properties.accountName}] Payment processed for txId: $transactionId, payment: $paymentId, succeeded: ${body.result}, message: ${body.message}")
+                                cont.resume(body)
+                            } catch (e: Exception) {
+                                cont.resumeWithException(e)
+                            }
+                        }
+                    })
                 }
             }
+        } catch (e: TimeoutCancellationException) {
+            logger.warn("[${properties.accountName}] Payment request for payment $paymentId timed out after ${paymentOperationTimeout.toMillis()} ms")
+            null
+        } catch (e: CancellationException) {
+            // This will be thrown if the coroutine is cancelled, which can happen if the HTTP request completes before the timeout.
+            null
+        } catch (e: Exception) {
+            // Handle other exceptions that may occur during the request
+            logger.error("[${properties.accountName}] An error occurred while processing the payment request: ${e.message}")
+            null
+        } finally {
+            // Release the window after the request
+            properties.nonBlockingWindow.releaseWindow()
+        }
     }
 }
-
 
 public fun now() = System.currentTimeMillis()

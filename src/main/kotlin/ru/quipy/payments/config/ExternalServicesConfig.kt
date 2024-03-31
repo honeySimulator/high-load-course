@@ -3,6 +3,8 @@ package ru.quipy.payments.config
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import ru.quipy.common.utils.CoroutineRateLimiter
+import ru.quipy.common.utils.NonBlockingOngoingWindow
+import ru.quipy.common.utils.OngoingWindow
 import ru.quipy.payments.logic.ExternalServiceProperties
 import ru.quipy.payments.logic.PaymentExternalServiceImpl
 import java.time.Duration
@@ -19,7 +21,8 @@ class ExternalServicesConfig {
         private val accountProps_1 = ExternalServiceProperties(
             serviceName = "test",
             accountName = "default-1",
-            parallelRequests = 10000,
+//            blockingWindow = OngoingWindow(10000),
+            nonBlockingWindow = NonBlockingOngoingWindow(1000),
             request95thPercentileProcessingTime = Duration.ofMillis(1000),
             rateLimiter = CoroutineRateLimiter(100) // Используем CoroutineRateLimiter с ограничением в 100 запросов в секунду
         )
@@ -27,9 +30,10 @@ class ExternalServicesConfig {
         private val accountProps_2 = ExternalServiceProperties(
             serviceName = "test",
             accountName = "default-2",
-            parallelRequests = 100,
+//            blockingWindow = OngoingWindow(100),
+            nonBlockingWindow = NonBlockingOngoingWindow(100),
             request95thPercentileProcessingTime = Duration.ofMillis(10_000),
-            rateLimiter = CoroutineRateLimiter(30) // Используем CoroutineRateLimiter с ограничением в 50 запросов в секунду
+            rateLimiter = CoroutineRateLimiter(30) // Используем CoroutineRateLimiter с ограничением в 30 запросов в секунду
         )
 
         //        private val accountProps_3 = ExternalServiceProperties(
