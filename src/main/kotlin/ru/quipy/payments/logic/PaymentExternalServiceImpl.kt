@@ -45,10 +45,10 @@ class PaymentExternalServiceImpl(
     }
 
     override fun submitPaymentRequest(paymentId: UUID, amount: Int, paymentStartedAt: Long) {
-        logger.warn("[${defaultProperties.accountName}] Submitting payment request for payment $paymentId. Already passed: ${now() - paymentStartedAt} ms")
+        logger.warn("Submitting payment request for payment $paymentId. Already passed: ${now() - paymentStartedAt} ms")
 
         val transactionId = UUID.randomUUID()
-        logger.info("[${defaultProperties.accountName}] Submit for $paymentId , txId: $transactionId")
+        logger.info(" Submit for $paymentId , txId: $transactionId")
 
         // Log that the payment was submitted regardless of the outcome.
         paymentESService.update(paymentId) {
@@ -91,12 +91,14 @@ class PaymentExternalServiceImpl(
         paymentId: UUID,
         transactionId: UUID
     ): ExternalSysResponse? {
-        // Try to acquire a window for the account.
-        val windowResponse = properties.nonBlockingWindow.putIntoWindow()
-        if (windowResponse !is NonBlockingOngoingWindow.WindowResponse.Success) {
-            logger.warn("[${properties.accountName}] Window is full for payment $paymentId, cannot submit request")
-            return null
-        }
+//         Try to acquire a window for the account.
+//        val windowResponse = properties.nonBlockingWindow.putIntoWindow()
+//        logger.info("[${properties.accountName}] Submit for $paymentId , txId: $transactionId")
+
+//        if (windowResponse !is NonBlockingOngoingWindow.WindowResponse.Success) {
+//            logger.warn("[${properties.accountName}] Window is full for payment $paymentId, cannot submit request")
+//            return null
+//        }
 
         val request = Request.Builder().run {
             url("http://localhost:1234/external/process?serviceName=${properties.serviceName}&accountName=${properties.accountName}&transactionId=$transactionId")
@@ -116,6 +118,9 @@ class PaymentExternalServiceImpl(
                             try {
                                 val body = mapper.readValue(response.body?.string(), ExternalSysResponse::class.java)
                                 logger.warn("[${properties.accountName}] Payment processed for txId: $transactionId, payment: $paymentId, succeeded: ${body.result}, message: ${body.message}")
+                                paymentESService.update(paymentId) {
+                                    it.logProcessing(body.result, now(), transactionId, reason = body.message)
+                                }
                                 cont.resume(body)
                             } catch (e: Exception) {
                                 cont.resumeWithException(e)
@@ -125,19 +130,27 @@ class PaymentExternalServiceImpl(
                 }
             }
         } catch (e: TimeoutCancellationException) {
+            paymentESService.update(paymentId) {
+                it.logProcessing(false, now(), transactionId, reason = "Request timeout.")
+            }
             logger.warn("[${properties.accountName}] Payment request for payment $paymentId timed out after ${paymentOperationTimeout.toMillis()} ms")
             null
         } catch (e: CancellationException) {
-            // This will be thrown if the coroutine is cancelled, which can happen if the HTTP request completes before the timeout.
+            paymentESService.update(paymentId) {
+                it.logProcessing(false, now(), transactionId, reason = e.message)
+            }
             null
         } catch (e: Exception) {
-            // Handle other exceptions that may occur during the request
+            paymentESService.update(paymentId) {
+                it.logProcessing(false, now(), transactionId, reason = e.message)
+            }
             logger.error("[${properties.accountName}] An error occurred while processing the payment request: ${e.message}")
             null
-        } finally {
-            // Release the window after the request
-            properties.nonBlockingWindow.releaseWindow()
         }
+//        finally {
+//            // Release the window after the request
+//            properties.nonBlockingWindow.releaseWindow()
+//        }
     }
 }
 
