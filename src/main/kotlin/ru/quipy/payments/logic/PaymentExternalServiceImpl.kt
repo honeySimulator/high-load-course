@@ -13,14 +13,16 @@ import java.io.IOException
 import java.time.Duration
 import java.util.*
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 
 // Advice: always treat time as a Duration
 class PaymentExternalServiceImpl(
-    private val defaultProperties: ExternalServiceProperties,
-    private val alternativeProperties: ExternalServiceProperties,
+    private val firstProperties: ExternalServiceProperties,
+    private val secondProperties: ExternalServiceProperties,
+    private val thirdProperties : ExternalServiceProperties
 ) : PaymentExternalService {
 
     companion object {
@@ -37,10 +39,12 @@ class PaymentExternalServiceImpl(
     @Autowired
     private lateinit var paymentESService: EventSourcingService<UUID, PaymentAggregate, PaymentAggregateState>
 
-    private val httpClientExecutor = Executors.newSingleThreadExecutor()
+    private val httpClientExecutor = Executors.newCachedThreadPool()
 
     private val client = OkHttpClient.Builder().run {
         dispatcher(Dispatcher(httpClientExecutor))
+        connectionPool(ConnectionPool(100, 5, TimeUnit.MINUTES))
+        protocols(listOf(Protocol.H2_PRIOR_KNOWLEDGE))
         build()
     }
 
@@ -56,16 +60,29 @@ class PaymentExternalServiceImpl(
         }
 
         // Check if we can make a request with the first account.
-        if (!defaultProperties.rateLimiter.tick()) {
+        if (!firstProperties.rateLimiter.tick()) {
             // If the first account cannot make a request, check the second account.
-            if (!alternativeProperties.rateLimiter.tick()) {
-                // If both accounts cannot make a request, log it and do not submit a request.
-                logger.warn("Both accounts are rate limited, cannot submit payment request for payment $paymentId")
-                return
+            if (!secondProperties.rateLimiter.tick()) {
+                // If both accounts cannot make a request, check the third account.
+                if (!thirdProperties.rateLimiter.tick()) {
+                    // If all accounts cannot make a request, log it and do not submit a request.
+                    logger.warn("All accounts are rate limited, cannot submit payment request for payment $paymentId")
+                    return
+                } else {
+                    // Use the third account to submit the request.
+                    externalScope.launch {
+                        val response = submitPaymentRequestWithProperties(thirdProperties, paymentId, transactionId)
+                        if (response != null) {
+                            paymentESService.update(paymentId) { currentState ->
+                                currentState.logProcessing(response.result, now(), UUID.randomUUID(), reason = response.message)
+                            }
+                        }
+                    }
+                }
             } else {
                 // Use the second account to submit the request.
                 externalScope.launch {
-                    val response = submitPaymentRequestWithProperties(alternativeProperties, paymentId, transactionId)
+                    val response = submitPaymentRequestWithProperties(secondProperties, paymentId, transactionId)
                     if (response != null) {
                         paymentESService.update(paymentId) { currentState ->
                             currentState.logProcessing(response.result, now(), UUID.randomUUID(), reason = response.message)
@@ -76,7 +93,7 @@ class PaymentExternalServiceImpl(
         } else {
             // Use the first account to submit the request.
             externalScope.launch {
-                val response = submitPaymentRequestWithProperties(defaultProperties, paymentId, transactionId)
+                val response = submitPaymentRequestWithProperties(firstProperties, paymentId, transactionId)
                 if (response != null) {
                     paymentESService.update(paymentId) { currentState ->
                         currentState.logProcessing(response.result, now(), UUID.randomUUID(), reason = response.message)
@@ -92,13 +109,13 @@ class PaymentExternalServiceImpl(
         transactionId: UUID
     ): ExternalSysResponse? {
 //         Try to acquire a window for the account.
-//        val windowResponse = properties.nonBlockingWindow.putIntoWindow()
-//        logger.info("[${properties.accountName}] Submit for $paymentId , txId: $transactionId")
+        val windowResponse = properties.nonBlockingWindow.putIntoWindow()
+        logger.info("[${properties.accountName}] Submit for $paymentId , txId: $transactionId")
 
-//        if (windowResponse !is NonBlockingOngoingWindow.WindowResponse.Success) {
-//            logger.warn("[${properties.accountName}] Window is full for payment $paymentId, cannot submit request")
-//            return null
-//        }
+        if (windowResponse !is NonBlockingOngoingWindow.WindowResponse.Success) {
+            logger.warn("[${properties.accountName}] Window is full for payment $paymentId, cannot submit request")
+            return null
+        }
 
         val request = Request.Builder().run {
             url("http://localhost:1234/external/process?serviceName=${properties.serviceName}&accountName=${properties.accountName}&transactionId=$transactionId")
@@ -107,27 +124,30 @@ class PaymentExternalServiceImpl(
 
         // Use a withTimeout to handle the timeout.
         return try {
-            withTimeout(paymentOperationTimeout.toMillis()) {
-                suspendCancellableCoroutine<ExternalSysResponse?> { cont ->
-                    client.newCall(request).enqueue(object : Callback {
-                        override fun onFailure(call: Call, e: IOException) {
-                            cont.resumeWithException(e)
-                        }
-
-                        override fun onResponse(call: Call, response: Response) {
-                            try {
-                                val body = mapper.readValue(response.body?.string(), ExternalSysResponse::class.java)
-                                logger.warn("[${properties.accountName}] Payment processed for txId: $transactionId, payment: $paymentId, succeeded: ${body.result}, message: ${body.message}")
-                                paymentESService.update(paymentId) {
-                                    it.logProcessing(body.result, now(), transactionId, reason = body.message)
-                                }
-                                cont.resume(body)
-                            } catch (e: Exception) {
+            withContext(Dispatchers.IO){
+                withTimeoutOrNull(paymentOperationTimeout.toMillis()) {
+                    suspendCancellableCoroutine<ExternalSysResponse?> { cont ->
+                        client.newCall(request).enqueue(object : Callback {
+                            override fun onFailure(call: Call, e: IOException) {
                                 cont.resumeWithException(e)
                             }
-                        }
-                    })
-                }
+
+                            override fun onResponse(call: Call, response: Response) {
+                                try {
+                                    val body =
+                                        mapper.readValue(response.body?.string(), ExternalSysResponse::class.java)
+                                    logger.warn("[${properties.accountName}] Payment processed for txId: $transactionId, payment: $paymentId, succeeded: ${body.result}, message: ${body.message}")
+                                    paymentESService.update(paymentId) {
+                                        it.logProcessing(body.result, now(), transactionId, reason = body.message)
+                                    }
+                                    cont.resume(body)
+                                } catch (e: Exception) {
+                                    cont.resumeWithException(e)
+                                }
+                            }
+                        })
+                    }
+                } ?: ExternalSysResponse(false, "Request timeout.")
             }
         } catch (e: TimeoutCancellationException) {
             paymentESService.update(paymentId) {
@@ -147,10 +167,10 @@ class PaymentExternalServiceImpl(
             logger.error("[${properties.accountName}] An error occurred while processing the payment request: ${e.message}")
             null
         }
-//        finally {
-//            // Release the window after the request
-//            properties.nonBlockingWindow.releaseWindow()
-//        }
+        finally {
+            // Release the window after the request
+            properties.nonBlockingWindow.releaseWindow()
+        }
     }
 }
 
