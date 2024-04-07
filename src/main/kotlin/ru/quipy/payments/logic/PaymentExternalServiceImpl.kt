@@ -7,6 +7,7 @@ import okhttp3.*
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import ru.quipy.common.utils.NonBlockingOngoingWindow
+import ru.quipy.common.utils.Summary
 import ru.quipy.core.EventSourcingService
 import ru.quipy.payments.api.PaymentAggregate
 import java.io.IOException
@@ -22,7 +23,7 @@ import kotlin.coroutines.resumeWithException
 class PaymentExternalServiceImpl(
     private val firstProperties: ExternalServiceProperties,
     private val secondProperties: ExternalServiceProperties,
-    private val thirdProperties : ExternalServiceProperties
+    private val thirdProperties: ExternalServiceProperties
 ) : PaymentExternalService {
 
     companion object {
@@ -48,6 +49,8 @@ class PaymentExternalServiceImpl(
         build()
     }
 
+    private val requestSummary = Summary(0.0)
+
     override fun submitPaymentRequest(paymentId: UUID, amount: Int, paymentStartedAt: Long) {
         logger.warn("Submitting payment request for payment $paymentId. Already passed: ${now() - paymentStartedAt} ms")
 
@@ -60,44 +63,30 @@ class PaymentExternalServiceImpl(
         }
 
         // Check if we can make a request with the first account.
-        if (!firstProperties.rateLimiter.tick()) {
-            // If the first account cannot make a request, check the second account.
-            if (!secondProperties.rateLimiter.tick()) {
-                // If both accounts cannot make a request, check the third account.
-                if (!thirdProperties.rateLimiter.tick()) {
-                    // If all accounts cannot make a request, log it and do not submit a request.
-                    logger.warn("All accounts are rate limited, cannot submit payment request for payment $paymentId")
-                    return
-                } else {
-                    // Use the third account to submit the request.
-                    externalScope.launch {
-                        val response = submitPaymentRequestWithProperties(thirdProperties, paymentId, transactionId)
-                        if (response != null) {
-                            paymentESService.update(paymentId) { currentState ->
-                                currentState.logProcessing(response.result, now(), UUID.randomUUID(), reason = response.message)
-                            }
-                        }
-                    }
-                }
-            } else {
-                // Use the second account to submit the request.
-                externalScope.launch {
-                    val response = submitPaymentRequestWithProperties(secondProperties, paymentId, transactionId)
-                    if (response != null) {
-                        paymentESService.update(paymentId) { currentState ->
-                            currentState.logProcessing(response.result, now(), UUID.randomUUID(), reason = response.message)
-                        }
-                    }
-                }
+        val propertiesToUse = when {
+            firstProperties.rateLimiter.tick() -> firstProperties
+            secondProperties.rateLimiter.tick() -> secondProperties
+            thirdProperties.rateLimiter.tick() -> thirdProperties
+            else -> {
+                logger.warn("All accounts are rate limited, cannot submit payment request for payment $paymentId")
+                return
             }
-        } else {
-            // Use the first account to submit the request.
-            externalScope.launch {
-                val response = submitPaymentRequestWithProperties(firstProperties, paymentId, transactionId)
-                if (response != null) {
-                    paymentESService.update(paymentId) { currentState ->
-                        currentState.logProcessing(response.result, now(), UUID.randomUUID(), reason = response.message)
-                    }
+        }
+
+        externalScope.launch {
+            val startTime = now()
+            val response = submitPaymentRequestWithProperties(propertiesToUse, paymentId, transactionId)
+            val endTime = now()
+            requestSummary.reportExecution(endTime - startTime)
+
+            if (response != null) {
+                paymentESService.update(paymentId) { currentState ->
+                    currentState.logProcessing(
+                        response.result,
+                        now(),
+                        UUID.randomUUID(),
+                        reason = response.message
+                    )
                 }
             }
         }
@@ -114,7 +103,10 @@ class PaymentExternalServiceImpl(
 
         if (windowResponse !is NonBlockingOngoingWindow.WindowResponse.Success) {
             logger.warn("[${properties.accountName}] Window is full for payment $paymentId, cannot submit request")
-            return null
+            paymentESService.update(paymentId) {
+                it.logProcessing(false, now(), transactionId, reason = "Window is full.")
+            }
+
         }
 
         val request = Request.Builder().run {
@@ -124,7 +116,7 @@ class PaymentExternalServiceImpl(
 
         // Use a withTimeout to handle the timeout.
         return try {
-            withContext(Dispatchers.IO){
+            withContext(Dispatchers.IO) {
                 withTimeoutOrNull(paymentOperationTimeout.toMillis()) {
                     suspendCancellableCoroutine<ExternalSysResponse?> { cont ->
                         client.newCall(request).enqueue(object : Callback {
@@ -166,8 +158,7 @@ class PaymentExternalServiceImpl(
             }
             logger.error("[${properties.accountName}] An error occurred while processing the payment request: ${e.message}")
             null
-        }
-        finally {
+        } finally {
             // Release the window after the request
             properties.nonBlockingWindow.releaseWindow()
         }
