@@ -2,15 +2,10 @@ package ru.quipy.payments.config
 
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import ru.quipy.common.utils.OngoingWindow
-import ru.quipy.common.utils.RateLimiter
-import ru.quipy.common.utils.TaskWindow
+import ru.quipy.common.utils.*
 import ru.quipy.core.EventSourcingService
 import ru.quipy.payments.api.PaymentAggregate
-import ru.quipy.payments.logic.ExternalServiceProperties
-import ru.quipy.payments.logic.PaymentAggregateState
-import ru.quipy.payments.logic.PaymentExternalServiceImpl
-import ru.quipy.payments.logic.PaymentServiceBalancer
+import ru.quipy.payments.logic.*
 import java.time.Duration
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -26,15 +21,13 @@ class ExternalServicesConfig(
         // Ниже приведены готовые конфигурации нескольких аккаунтов провайдера оплаты.
         // Заметьте, что каждый аккаунт обладает своими характеристиками и стоимостью вызова.
 
-        private val accountProps_1 = ExternalServiceProperties(
-            // most expensive. Call costs 100
-            "test",
-            "default-1",
-            parallelRequests = 10000,
-            rateLimitPerSec = 100,
-            request95thPercentileProcessingTime = Duration.ofMillis(1000),
-            cost = 100
-        )
+//        private val accountProps_1 = ExternalServiceProperties(
+//            serviceName = "test",
+//            accountName = "default-1",
+//            nonBlockingWindow = NonBlockingOngoingWindow(1000),
+//            request95thPercentileProcessingTime = Duration.ofMillis(1000),
+//            rateLimiter = CoroutineRateLimiter(100) // Используем CoroutineRateLimiter с ограничением в 100 запросов в секунду
+//        )
 
         private val accountProps_2 = ExternalServiceProperties(
             // Call costs 70
@@ -68,31 +61,31 @@ class ExternalServicesConfig(
     }
 
     @Bean(PRIMARY_PAYMENT_BEAN)
-    fun optimalExternalService() =
+    fun fastExternalService() =
         PaymentServiceBalancer(
             listOf(
-                ServiceSet(
+                ServiceConfigurer(
                     PaymentExternalServiceImpl(accountProps_2, paymentESService),
                     RateLimiter(accountProps_2.rateLimitPerSec, TimeUnit.SECONDS),
-                    TaskWindow(OngoingWindow(accountProps_2.parallelRequests)),
+                    JobExecutionWindow(NonBlockingOngoingWindow(accountProps_2.parallelRequests)),
                 ),
-                ServiceSet(
+                ServiceConfigurer(
                     PaymentExternalServiceImpl(accountProps_3, paymentESService),
                     RateLimiter(accountProps_3.rateLimitPerSec, TimeUnit.SECONDS),
-                    TaskWindow(OngoingWindow(accountProps_3.parallelRequests)),
+                    JobExecutionWindow(NonBlockingOngoingWindow(accountProps_3.parallelRequests)),
                 ),
-                ServiceSet(
+                ServiceConfigurer(
                     PaymentExternalServiceImpl(accountProps_4, paymentESService),
                     RateLimiter(accountProps_4.rateLimitPerSec, TimeUnit.SECONDS),
-                    TaskWindow(OngoingWindow(accountProps_4.parallelRequests)),
+                    JobExecutionWindow(NonBlockingOngoingWindow(accountProps_4.parallelRequests)),
                 ),
             ),
             paymentESService
         )
 }
 
-class ServiceSet(
+class ServiceConfigurer(
     val service: PaymentExternalServiceImpl,
     val rateLimiter: RateLimiter,
-    val window: TaskWindow
+    val window: JobExecutionWindow
 )
