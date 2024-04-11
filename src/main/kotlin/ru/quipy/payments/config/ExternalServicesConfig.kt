@@ -2,16 +2,19 @@ package ru.quipy.payments.config
 
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import ru.quipy.common.utils.CoroutineRateLimiter
-import ru.quipy.common.utils.NonBlockingOngoingWindow
-import ru.quipy.common.utils.OngoingWindow
-import ru.quipy.payments.logic.ExternalServiceProperties
-import ru.quipy.payments.logic.PaymentExternalServiceImpl
+import ru.quipy.common.utils.*
+import ru.quipy.core.EventSourcingService
+import ru.quipy.payments.api.PaymentAggregate
+import ru.quipy.payments.logic.*
 import java.time.Duration
+import java.util.*
+import java.util.concurrent.TimeUnit
 
 
 @Configuration
-class ExternalServicesConfig {
+class ExternalServicesConfig(
+    private val paymentESService: EventSourcingService<UUID, PaymentAggregate, PaymentAggregateState>
+) {
     companion object {
         const val PRIMARY_PAYMENT_BEAN = "PRIMARY_PAYMENT_BEAN"
 
@@ -27,38 +30,62 @@ class ExternalServicesConfig {
 //        )
 
         private val accountProps_2 = ExternalServiceProperties(
-            serviceName = "test",
-            accountName = "default-2",
-            nonBlockingWindow = NonBlockingOngoingWindow(100),
+            // Call costs 70
+            "test",
+            "default-2",
+            parallelRequests = 100,
+            rateLimitPerSec = 30,
             request95thPercentileProcessingTime = Duration.ofMillis(10_000),
-            rateLimiter = CoroutineRateLimiter(30) // Используем CoroutineRateLimiter с ограничением в 30 запросов в секунду
+            cost = 70
         )
 
         private val accountProps_3 = ExternalServiceProperties(
             // Call costs 40
             "test",
             "default-3",
-            nonBlockingWindow = NonBlockingOngoingWindow(30),
+            parallelRequests = 30,
+            rateLimitPerSec = 8,
             request95thPercentileProcessingTime = Duration.ofMillis(10_000),
-            rateLimiter = CoroutineRateLimiter(8)
+            cost = 40
         )
 
         // Call costs 30
         private val accountProps_4 = ExternalServiceProperties(
             "test",
             "default-4",
-            nonBlockingWindow = NonBlockingOngoingWindow(8),
+            parallelRequests = 8,
+            rateLimitPerSec = 5,
             request95thPercentileProcessingTime = Duration.ofMillis(10_000),
-            rateLimiter = CoroutineRateLimiter(5)
+            cost = 30
         )
     }
+
     @Bean(PRIMARY_PAYMENT_BEAN)
-    fun fastExternalService(): PaymentExternalServiceImpl {
-        // Две конфигурации аккаунта
-        return PaymentExternalServiceImpl(
-            firstProperties = accountProps_4,
-            secondProperties = accountProps_3,
-            thirdProperties = accountProps_2
+    fun fastExternalService() =
+        PaymentServiceBalancer(
+            listOf(
+                ServiceConfigurer(
+                    PaymentExternalServiceImpl(accountProps_2, paymentESService),
+                    RateLimiter(accountProps_2.rateLimitPerSec, TimeUnit.SECONDS),
+                    JobExecutionWindow(NonBlockingOngoingWindow(accountProps_2.parallelRequests)),
+                ),
+                ServiceConfigurer(
+                    PaymentExternalServiceImpl(accountProps_3, paymentESService),
+                    RateLimiter(accountProps_3.rateLimitPerSec, TimeUnit.SECONDS),
+                    JobExecutionWindow(NonBlockingOngoingWindow(accountProps_3.parallelRequests)),
+                ),
+                ServiceConfigurer(
+                    PaymentExternalServiceImpl(accountProps_4, paymentESService),
+                    RateLimiter(accountProps_4.rateLimitPerSec, TimeUnit.SECONDS),
+                    JobExecutionWindow(NonBlockingOngoingWindow(accountProps_4.parallelRequests)),
+                ),
+            ),
+            paymentESService
         )
-    }
 }
+
+class ServiceConfigurer(
+    val service: PaymentExternalServiceImpl,
+    val rateLimiter: RateLimiter,
+    val window: JobExecutionWindow
+)
