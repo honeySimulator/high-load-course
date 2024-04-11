@@ -47,3 +47,20 @@ class OngoingWindow(
 
     fun release() = window.release()
 }
+
+class CoroutineOngoingWindow(
+    maxWinSize: Int
+) {
+    private val window = kotlinx.coroutines.sync.Semaphore(maxWinSize)
+    val permits get() = window.availablePermits
+
+    suspend fun acquire() {
+        window.acquire()
+    }
+
+    fun tryAcquire(): Boolean {
+        return window.tryAcquire()
+    }
+
+    fun release() = window.release()
+}

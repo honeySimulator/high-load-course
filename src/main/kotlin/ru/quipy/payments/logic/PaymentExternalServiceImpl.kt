@@ -5,7 +5,7 @@ import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import okhttp3.*
 import org.slf4j.LoggerFactory
 import ru.quipy.common.utils.NamedThreadFactory
-import ru.quipy.common.utils.JobExecutionWindow
+import ru.quipy.common.utils.TaskWindow
 import ru.quipy.core.EventSourcingService
 import ru.quipy.payments.api.PaymentAggregate
 import java.io.IOException
@@ -16,7 +16,6 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 
-// Advice: always treat time as a Duration
 class PaymentExternalServiceImpl(
     private val properties: ExternalServiceProperties,
     private val paymentESService: EventSourcingService<UUID, PaymentAggregate, PaymentAggregateState>
@@ -24,11 +23,10 @@ class PaymentExternalServiceImpl(
 
     companion object {
         val logger = LoggerFactory.getLogger(PaymentExternalServiceImpl::class.java)
-        val paymentOperationTimeout = Duration.ofSeconds(80)
+
         val emptyBody = RequestBody.create(null, ByteArray(0))
         val mapper = ObjectMapper().registerKotlinModule()
     }
-
 
     val serviceName = properties.serviceName
     val accountName = properties.accountName
@@ -37,26 +35,25 @@ class PaymentExternalServiceImpl(
     val cost = properties.cost
     private val callbackExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors(), NamedThreadFactory("callback-$accountName"))
 
-
     private val client = OkHttpClient.Builder() .run {
+        protocols(Collections.singletonList(Protocol.H2_PRIOR_KNOWLEDGE))
+        connectionPool(ConnectionPool(properties.parallelRequests, properties.request95thPercentileProcessingTime.seconds, TimeUnit.SECONDS))
         dispatcher(Dispatcher().apply {
             maxRequests = properties.parallelRequests
             maxRequestsPerHost = properties.parallelRequests
         })
-        connectionPool(ConnectionPool(properties.parallelRequests, properties.request95thPercentileProcessingTime.seconds, TimeUnit.SECONDS))
-        protocols(Collections.singletonList(Protocol.H2_PRIOR_KNOWLEDGE))
         connectTimeout(requestAverageProcessingTime)
         readTimeout(requestAverageProcessingTime)
         build()
     }
 
-    fun submitPaymentRequest(paymentId: UUID, amount: Int, paymentStartedAt: Long, window: JobExecutionWindow) {
+    fun submitPaymentRequest(paymentId: UUID, amount: Int, paymentStartedAt: Long, window: TaskWindow) {
         val passed = now() - paymentStartedAt
         logger.warn("[$accountName] Submitting payment request for payment $paymentId. Already passed: $passed ms")
 
         val transactionId = UUID.randomUUID()
 
-        if (Duration.ofMillis(passed) > paymentOperationTimeout) {
+        if (Duration.ofMillis(passed) > PaymentOperationTimeout) {
             paymentESService.update(paymentId) {
                 it.logProcessing(false, now(), transactionId, reason = "Request timeout.")
             }
@@ -129,23 +126,8 @@ class PaymentExternalServiceImpl(
 
     fun destroy() {
         callbackExecutor.shutdown()
-//        try {
-//            if (!callbackExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
-//                callbackExecutor.shutdownNow()
-//            }
-//        } catch (e: InterruptedException) {
-//            callbackExecutor.shutdownNow()
-//        }
-
         client.dispatcher.executorService.shutdown()
-//        try {
-//            if (!client.dispatcher.executorService.awaitTermination(60, TimeUnit.SECONDS)) {
-//                client.dispatcher.executorService.shutdownNow()
-//            }
-//        } catch (e: InterruptedException) {
-//            client.dispatcher.executorService.shutdownNow()
-//        }
     }
 }
 
-public fun now() = System.currentTimeMillis()
+fun now() = System.currentTimeMillis()

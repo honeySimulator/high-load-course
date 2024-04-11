@@ -21,6 +21,7 @@ class CoroutineRateLimiter(
     }
 
     private val semaphore = Semaphore(rate)
+    val permits get() = semaphore.availablePermits
 
     private val releaseJob = rateLimiterScope.launch {
         while (true) {

@@ -2,17 +2,17 @@ package ru.quipy.common.utils
 
 import java.util.concurrent.atomic.AtomicInteger
 
-class JobExecutionWindow(
-    private val window: NonBlockingOngoingWindow,
+class TaskWindow(
+   private val window: OngoingWindow,
 ) {
     var jobCount: AtomicInteger = AtomicInteger(0)
 
     fun release() {
-        window.releaseWindow()
+        window.release()
         jobCount.decrementAndGet()
     }
 
     fun acquireWindow() {
-        window.putIntoWindow()
+        window.acquire()
     }
 }
