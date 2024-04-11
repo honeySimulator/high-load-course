@@ -6,6 +6,7 @@ import okhttp3.*
 import org.slf4j.LoggerFactory
 import ru.quipy.common.utils.NamedThreadFactory
 import ru.quipy.common.utils.JobExecutionWindow
+import ru.quipy.common.utils.MyCircuitBreaker
 import ru.quipy.core.EventSourcingService
 import ru.quipy.payments.api.PaymentAggregate
 import java.io.IOException
@@ -50,7 +51,7 @@ class PaymentExternalServiceImpl(
         build()
     }
 
-    fun submitPaymentRequest(paymentId: UUID, amount: Int, paymentStartedAt: Long, window: JobExecutionWindow) {
+    fun submitPaymentRequest(paymentId: UUID, amount: Int, paymentStartedAt: Long, window: JobExecutionWindow, circuitBreaker: MyCircuitBreaker) {
         val passed = now() - paymentStartedAt
         logger.warn("[$accountName] Submitting payment request for payment $paymentId. Already passed: $passed ms")
 
@@ -79,6 +80,7 @@ class PaymentExternalServiceImpl(
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 window.release()
+                circuitBreaker.submitFailure()
                 callbackExecutor.submit {
                     handleException(paymentId, transactionId, e)
                 }
@@ -87,6 +89,7 @@ class PaymentExternalServiceImpl(
             override fun onResponse(call: Call, response: Response) {
                 logger.error("${(now() - now) / 1000.0} s. for account $accountName. Dispatcher: ${client.dispatcher.runningCallsCount()} running, ${client.dispatcher.queuedCallsCount()} queued")
                 window.release()
+                circuitBreaker.submitFailure()
                 callbackExecutor.submit {
                     val body = try {
                         mapper.readValue(response.body?.string(), ExternalSysResponse::class.java)
@@ -108,22 +111,30 @@ class PaymentExternalServiceImpl(
     }
 
     private fun handleException(paymentId: UUID, transactionId: UUID, exception: Exception) {
-        when (exception) {
-            is SocketTimeoutException -> {
-                paymentESService.update(paymentId) {
-                    it.logProcessing(false, now(), transactionId, reason = "Request timeout.")
+        try {
+            when (exception) {
+                is SocketTimeoutException -> {
+                    paymentESService.update(paymentId) {
+                        it.logProcessing(false, now(), transactionId, reason = "Request timeout.")
+                    }
                 }
-            }
-            else -> {
-                logger.error(
-                    "[$accountName] Payment failed for txId: $transactionId, payment: $paymentId",
-                    exception
-                )
+                else -> {
+                    logger.error(
+                        "[$accountName] Payment failed for txId: $transactionId, payment: $paymentId",
+                        exception
+                    )
 
-                paymentESService.update(paymentId) {
-                    it.logProcessing(false, now(), transactionId, reason = exception.message)
+                    paymentESService.update(paymentId) {
+                        it.logProcessing(false, now(), transactionId, reason = exception.message)
+                    }
                 }
             }
+        }
+        catch (e: Exception) {
+            logger.error(
+                "[$accountName] Exception during handling payment error!",
+                exception
+            )
         }
     }
 

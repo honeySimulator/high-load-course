@@ -49,16 +49,30 @@ class ExternalServicesConfig(
             cost = 40
         )
 
-        // Call costs 30
+        // Call costs 35
         private val accountProps_4 = ExternalServiceProperties(
             "test",
-            "default-4",
+            "default-42",
+            parallelRequests = 8,
+            rateLimitPerSec = 5,
+            request95thPercentileProcessingTime = Duration.ofMillis(10_000),
+            cost = 35
+        )
+
+        private val accountProps_5 = ExternalServiceProperties(
+            "test",
+            "default-5",
             parallelRequests = 8,
             rateLimitPerSec = 5,
             request95thPercentileProcessingTime = Duration.ofMillis(10_000),
             cost = 30
         )
     }
+
+    private val circuitBreaker2 = MyCircuitBreaker("account2-breaker", 0.2, 50, 20_000)
+    private val circuitBreaker3 = MyCircuitBreaker("account3-breaker", 0.2, 50, 20_000)
+    private val circuitBreaker4 = MyCircuitBreaker("account42-breaker", 0.2, 30, 20_000)
+    private val circuitBreaker5 = MyCircuitBreaker("account5-breaker", 0.2, 30, 20_000)
 
     @Bean(PRIMARY_PAYMENT_BEAN)
     fun fastExternalService() =
@@ -68,16 +82,25 @@ class ExternalServicesConfig(
                     PaymentExternalServiceImpl(accountProps_2, paymentESService),
                     RateLimiter(accountProps_2.rateLimitPerSec, TimeUnit.SECONDS),
                     JobExecutionWindow(NonBlockingOngoingWindow(accountProps_2.parallelRequests)),
+                    circuitBreaker2
                 ),
                 ServiceConfigurer(
                     PaymentExternalServiceImpl(accountProps_3, paymentESService),
                     RateLimiter(accountProps_3.rateLimitPerSec, TimeUnit.SECONDS),
                     JobExecutionWindow(NonBlockingOngoingWindow(accountProps_3.parallelRequests)),
+                    circuitBreaker3
                 ),
                 ServiceConfigurer(
                     PaymentExternalServiceImpl(accountProps_4, paymentESService),
                     RateLimiter(accountProps_4.rateLimitPerSec, TimeUnit.SECONDS),
                     JobExecutionWindow(NonBlockingOngoingWindow(accountProps_4.parallelRequests)),
+                    circuitBreaker4
+                ),
+                ServiceConfigurer(
+                    PaymentExternalServiceImpl(accountProps_5, paymentESService),
+                    RateLimiter(accountProps_5.rateLimitPerSec, TimeUnit.SECONDS),
+                    JobExecutionWindow(NonBlockingOngoingWindow(accountProps_5.parallelRequests)),
+                    circuitBreaker5
                 ),
             ),
             paymentESService
@@ -87,5 +110,6 @@ class ExternalServicesConfig(
 class ServiceConfigurer(
     val service: PaymentExternalServiceImpl,
     val rateLimiter: RateLimiter,
-    val window: JobExecutionWindow
+    val window: JobExecutionWindow,
+    val circuitBreaker: MyCircuitBreaker
 )

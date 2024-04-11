@@ -18,6 +18,12 @@ class PaymentServiceBalancer (
         private val queues = serviceConfigurers.sortedBy { it.service.cost }.map { x -> PaymentServiceRequestQueue(x) }.toTypedArray()
         private val logger = LoggerFactory.getLogger(PaymentServiceBalancer::class.java)
 
+        init {
+            queues.forEach { x ->
+                x.fallback = { request : PaymentRequest -> submitPaymentRequest(request.paymentId, request.amount, request.paymentStartedAt) }
+            }
+        }
+
         override fun submitPaymentRequest(paymentId: UUID, amount: Int, paymentStartedAt: Long) {
             val request = PaymentRequest(paymentId, amount, paymentStartedAt)
             queues.forEach {
