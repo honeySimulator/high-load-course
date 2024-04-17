@@ -81,25 +81,25 @@ class ExternalServicesConfig(
                 ServiceConfigurer(
                     PaymentExternalServiceImpl(accountProps_2, paymentESService),
                     RateLimiter(accountProps_2.rateLimitPerSec, TimeUnit.SECONDS),
-                    JobExecutionWindow(NonBlockingOngoingWindow(accountProps_2.parallelRequests)),
+                    NonBlockingOngoingWindow(accountProps_2.parallelRequests),
                     circuitBreaker2
                 ),
                 ServiceConfigurer(
                     PaymentExternalServiceImpl(accountProps_3, paymentESService),
                     RateLimiter(accountProps_3.rateLimitPerSec, TimeUnit.SECONDS),
-                    JobExecutionWindow(NonBlockingOngoingWindow(accountProps_3.parallelRequests)),
+                    NonBlockingOngoingWindow(accountProps_3.parallelRequests),
                     circuitBreaker3
                 ),
                 ServiceConfigurer(
                     PaymentExternalServiceImpl(accountProps_4, paymentESService),
                     RateLimiter(accountProps_4.rateLimitPerSec, TimeUnit.SECONDS),
-                    JobExecutionWindow(NonBlockingOngoingWindow(accountProps_4.parallelRequests)),
+                    NonBlockingOngoingWindow(accountProps_4.parallelRequests),
                     circuitBreaker4
                 ),
                 ServiceConfigurer(
                     PaymentExternalServiceImpl(accountProps_5, paymentESService),
                     RateLimiter(accountProps_5.rateLimitPerSec, TimeUnit.SECONDS),
-                    JobExecutionWindow(NonBlockingOngoingWindow(accountProps_5.parallelRequests)),
+                    NonBlockingOngoingWindow(accountProps_5.parallelRequests),
                     circuitBreaker5
                 ),
             ),
@@ -110,6 +110,6 @@ class ExternalServicesConfig(
 class ServiceConfigurer(
     val service: PaymentExternalServiceImpl,
     val rateLimiter: RateLimiter,
-    val window: JobExecutionWindow,
+    val window: NonBlockingOngoingWindow,
     val circuitBreaker: MyCircuitBreaker
 )

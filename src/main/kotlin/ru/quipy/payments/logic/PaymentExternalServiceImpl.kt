@@ -4,9 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import okhttp3.*
 import org.slf4j.LoggerFactory
-import ru.quipy.common.utils.NamedThreadFactory
-import ru.quipy.common.utils.JobExecutionWindow
 import ru.quipy.common.utils.MyCircuitBreaker
+import ru.quipy.common.utils.NamedThreadFactory
+import ru.quipy.common.utils.NonBlockingOngoingWindow
 import ru.quipy.core.EventSourcingService
 import ru.quipy.payments.api.PaymentAggregate
 import java.io.IOException
@@ -36,22 +36,37 @@ class PaymentExternalServiceImpl(
     val requestAverageProcessingTime = properties.request95thPercentileProcessingTime
     val speed = properties.speed
     val cost = properties.cost
-    private val callbackExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors(), NamedThreadFactory("callback-$accountName"))
+    private val callbackExecutor = Executors.newFixedThreadPool(
+        Runtime.getRuntime().availableProcessors(),
+        NamedThreadFactory("callback-$accountName")
+    )
 
 
-    private val client = OkHttpClient.Builder() .run {
+    private val client = OkHttpClient.Builder().run {
         dispatcher(Dispatcher().apply {
             maxRequests = properties.parallelRequests
             maxRequestsPerHost = properties.parallelRequests
         })
-        connectionPool(ConnectionPool(properties.parallelRequests, properties.request95thPercentileProcessingTime.seconds, TimeUnit.SECONDS))
+        connectionPool(
+            ConnectionPool(
+                properties.parallelRequests,
+                properties.request95thPercentileProcessingTime.seconds,
+                TimeUnit.SECONDS
+            )
+        )
         protocols(Collections.singletonList(Protocol.H2_PRIOR_KNOWLEDGE))
         connectTimeout(requestAverageProcessingTime)
         readTimeout(requestAverageProcessingTime)
         build()
     }
 
-    fun submitPaymentRequest(paymentId: UUID, amount: Int, paymentStartedAt: Long, window: JobExecutionWindow, circuitBreaker: MyCircuitBreaker) {
+    fun submitPaymentRequest(
+        paymentId: UUID,
+        amount: Int,
+        paymentStartedAt: Long,
+        window: NonBlockingOngoingWindow,
+        circuitBreaker: MyCircuitBreaker
+    ) {
         val passed = now() - paymentStartedAt
         logger.warn("[$accountName] Submitting payment request for payment $paymentId. Already passed: $passed ms")
 
@@ -79,7 +94,7 @@ class PaymentExternalServiceImpl(
         val now = now()
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                window.release()
+                window.releaseWindow()
                 circuitBreaker.submitFailure()
                 callbackExecutor.submit {
                     handleException(paymentId, transactionId, e)
@@ -87,8 +102,8 @@ class PaymentExternalServiceImpl(
             }
 
             override fun onResponse(call: Call, response: Response) {
-                logger.error("${(now() - now) / 1000.0} s. for account $accountName. Dispatcher: ${client.dispatcher.runningCallsCount()} running, ${client.dispatcher.queuedCallsCount()} queued")
-                window.release()
+                logger.warn("${(now() - now) / 1000.0} s. for account $accountName. Dispatcher: ${client.dispatcher.runningCallsCount()} running, ${client.dispatcher.queuedCallsCount()} queued")
+                window.releaseWindow()
                 circuitBreaker.submitFailure()
                 callbackExecutor.submit {
                     val body = try {
@@ -118,6 +133,7 @@ class PaymentExternalServiceImpl(
                         it.logProcessing(false, now(), transactionId, reason = "Request timeout.")
                     }
                 }
+
                 else -> {
                     logger.error(
                         "[$accountName] Payment failed for txId: $transactionId, payment: $paymentId",
@@ -129,8 +145,7 @@ class PaymentExternalServiceImpl(
                     }
                 }
             }
-        }
-        catch (e: Exception) {
+        } catch (e: Exception) {
             logger.error(
                 "[$accountName] Exception during handling payment error!",
                 exception
@@ -139,23 +154,35 @@ class PaymentExternalServiceImpl(
     }
 
     fun destroy() {
+        logger.info("Shutting down the callback executor")
         callbackExecutor.shutdown()
 //        try {
-//            if (!callbackExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
-//                callbackExecutor.shutdownNow()
-//            }
-//        } catch (e: InterruptedException) {
+//        if (!callbackExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+//            logger.warn("Callback executor did not terminate within the specified time")
 //            callbackExecutor.shutdownNow()
+//            logger.info("Forcibly shut down the callback executor")
 //        }
-
+//    } catch (e: InterruptedException) {
+//        logger.error("Interrupted while waiting for callback executor to terminate", e)
+//        callbackExecutor.shutdownNow()
+//        logger.info("Forcibly shut down the callback executor after interruption")
+//        Thread.currentThread().interrupt()
+//    }
+        logger.info("Shutting down the client dispatcher executor")
         client.dispatcher.executorService.shutdown()
 //        try {
-//            if (!client.dispatcher.executorService.awaitTermination(60, TimeUnit.SECONDS)) {
-//                client.dispatcher.executorService.shutdownNow()
-//            }
-//        } catch (e: InterruptedException) {
+//        if (!client.dispatcher.executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+//            logger.warn("Client dispatcher executor did not terminate within the specified time")
 //            client.dispatcher.executorService.shutdownNow()
+//            logger.info("Forcibly shut down the client dispatcher executor")
 //        }
+//    } catch (e: InterruptedException) {
+//        logger.error("Interrupted while waiting for client dispatcher executor to terminate", e)
+//        client.dispatcher.executorService.shutdownNow()
+//        logger.info("Forcibly shut down the client dispatcher executor after interruption")
+//        Thread.currentThread().interrupt()
+//    }
+//        logger.info("Callback executor and client dispatcher executor have been shut down")
     }
 }
 

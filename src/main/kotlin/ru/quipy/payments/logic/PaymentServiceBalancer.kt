@@ -9,42 +9,52 @@ import ru.quipy.payments.config.ServiceConfigurer
 import java.util.*
 
 @Service
-class PaymentServiceBalancer (
+class PaymentServiceBalancer(
     serviceConfigurers: List<ServiceConfigurer>,
     private val paymentESService: EventSourcingService<UUID, PaymentAggregate, PaymentAggregateState>
-    ) : PaymentExternalService, DisposableBean
-    {
+) : PaymentExternalService, DisposableBean {
 
-        private val queues = serviceConfigurers.sortedBy { it.service.cost }.map { x -> PaymentServiceRequestQueue(x) }.toTypedArray()
-        private val logger = LoggerFactory.getLogger(PaymentServiceBalancer::class.java)
+    private val queues =
+        serviceConfigurers.sortedBy { it.service.cost }.map { x -> PaymentServiceRequestQueue(x) }.toTypedArray()
+    private val logger = LoggerFactory.getLogger(PaymentServiceBalancer::class.java)
 
-        init {
-            queues.forEach { x ->
-                x.fallback = { request : PaymentRequest -> submitPaymentRequest(request.paymentId, request.amount, request.paymentStartedAt) }
-            }
-        }
-
-        override fun submitPaymentRequest(paymentId: UUID, amount: Int, paymentStartedAt: Long) {
-            val request = PaymentRequest(paymentId, amount, paymentStartedAt)
-            queues.forEach {
-                if (it.tryEnqueue(request)) {
-                    logger.warn("$paymentId can be placed in ${it.accountName}")
-                    return
-                }
-            }
-
-            paymentESService.update(paymentId) {
-                it.logProcessing(
-                    false,
-                    now(),
-                    UUID.randomUUID(),
-                    reason = "Request can't be processed due to lack of processing speed"
+    init {
+        logger.info("Initializing payment service queues")
+        queues.forEach { x ->
+            x.fallback = { request: PaymentRequest ->
+                submitPaymentRequest(
+                    request.paymentId,
+                    request.amount,
+                    request.paymentStartedAt
                 )
             }
         }
+        logger.info("Payment service queues initialized")
+    }
 
-        override fun destroy() {
-            logger.warn("Closing PaymentServiceBalancer")
-            queues.forEach { it.destroy(); }
+    override fun submitPaymentRequest(paymentId: UUID, amount: Int, paymentStartedAt: Long) {
+        val request = PaymentRequest(paymentId, amount, paymentStartedAt)
+        logger.info("Starting to try enqueue payment request: $paymentId")
+        queues.forEach {
+            if (it.tryEnqueue(request)) {
+                logger.warn("$paymentId can be placed in ${it.accountName}")
+                return
+            }
+        }
+
+        logger.info("$paymentId cannot be placed in any queue")
+        paymentESService.update(paymentId) {
+            it.logProcessing(
+                false,
+                now(),
+                UUID.randomUUID(),
+                reason = "Request can't be processed due to lack of processing speed"
+            )
         }
     }
+
+    override fun destroy() {
+        logger.warn("Closing PaymentServiceBalancer")
+        queues.forEach { it.destroy(); }
+    }
+}

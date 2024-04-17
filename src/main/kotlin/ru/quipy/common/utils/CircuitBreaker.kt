@@ -1,10 +1,10 @@
 package ru.quipy.common.utils
 
-import com.google.common.collect.EvictingQueue
 import org.slf4j.LoggerFactory
-import ru.quipy.common.utils.NamedThreadFactory
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicIntegerArray
+import java.util.concurrent.atomic.AtomicReference
 
 class MyCircuitBreaker(
     val name: String,
@@ -17,11 +17,11 @@ class MyCircuitBreaker(
         CLOSED, OPEN, HALF_OPEN
     }
 
-    private var lastStateChangeTime = System.currentTimeMillis()
-    private var state = CircuitBreakerState.CLOSED
+    private var lastStateChangeTime = AtomicReference(System.currentTimeMillis())
+    private var state = AtomicReference(CircuitBreakerState.CLOSED)
     private val executor = Executors.newSingleThreadScheduledExecutor(NamedThreadFactory(name))
     private val logger = LoggerFactory.getLogger(MyCircuitBreaker::class.java)
-    private val window = EvictingQueue.create<Boolean>(slidingWindowSize)
+    private val window = AtomicIntegerArray(slidingWindowSize)
 
     init {
         executor.scheduleAtFixedRate({
@@ -29,15 +29,15 @@ class MyCircuitBreaker(
         }, 0, 5_000, TimeUnit.MILLISECONDS)
     }
 
-    fun canMakeCall() = state != CircuitBreakerState.OPEN
+    fun canMakeCall() = state.get() != CircuitBreakerState.OPEN
 
     fun submitExecution() {
-        if (state == CircuitBreakerState.OPEN) throw CircuitBreakerOpenException("Circuit breaker is open")
+        if (state.get() == CircuitBreakerState.OPEN) throw CircuitBreakerOpenException("Circuit breaker is open")
     }
 
     fun submitFailure() {
         incrementFailureCount()
-        when (state) {
+        when (state.get()) {
             CircuitBreakerState.CLOSED -> {
                 if (failureRate() >= failureRateThreshold) {
                     transitionToOpen()
@@ -52,7 +52,7 @@ class MyCircuitBreaker(
 
     fun submitSuccess() {
         incrementCallCount()
-        when (state) {
+        when (state.get()) {
             CircuitBreakerState.CLOSED -> {}
             CircuitBreakerState.OPEN -> {}
             CircuitBreakerState.HALF_OPEN -> {
@@ -63,47 +63,50 @@ class MyCircuitBreaker(
     }
 
     private fun incrementCallCount() {
-        window.add(true)
+        window.incrementAndGet(window.length() - 1)
     }
 
     private fun incrementFailureCount() {
-        window.add(false)
+        window.decrementAndGet(window.length() - 1)
     }
 
     private fun resetFailureCount() {
-        window.clear()
+        for (i in 0 until window.length()) {
+            window.set(i, 0)
+        }
+    }
+
+    private fun sum(): Int {
+        var sum = 0
+        for (i in 0 until window.length()) {
+            sum += window.get(i)
+        }
+        return sum
     }
 
     private fun failureRate(): Double {
-        if (window.isEmpty()) {
-            return 0.0
-        }
-        val calls = window.toArray()
-        return calls.count { x -> x == true }.toDouble() / calls.size.toDouble()
+        val total = sum()
+        if (total == 0) return 0.0
+        val failures = total - window.get(window.length() - 1)
+        return failures.toDouble() / total.toDouble()
     }
 
     private fun transitionToOpen() {
-        if (state != CircuitBreakerState.OPEN) {
-            state = CircuitBreakerState.OPEN
-            lastStateChangeTime = System.currentTimeMillis()
-            onStateChange(state)
-        }
+        state.compareAndSet(CircuitBreakerState.CLOSED, CircuitBreakerState.OPEN)
+        lastStateChangeTime.set(System.currentTimeMillis())
+        onStateChange(state.get())
     }
 
     private fun transitionToHalfOpen() {
-        if (state != CircuitBreakerState.HALF_OPEN) {
-            state = CircuitBreakerState.HALF_OPEN
-            lastStateChangeTime = System.currentTimeMillis()
-            onStateChange(state)
-        }
+        state.compareAndSet(CircuitBreakerState.OPEN, CircuitBreakerState.HALF_OPEN)
+        lastStateChangeTime.set(System.currentTimeMillis())
+        onStateChange(state.get())
     }
 
     private fun transitionToClosed() {
-        if (state != CircuitBreakerState.CLOSED) {
-            state = CircuitBreakerState.CLOSED
-            lastStateChangeTime = System.currentTimeMillis()
-            onStateChange(state)
-        }
+        state.compareAndSet(CircuitBreakerState.HALF_OPEN, CircuitBreakerState.CLOSED)
+        lastStateChangeTime.set(System.currentTimeMillis())
+        onStateChange(state.get())
     }
 
     private fun onStateChange(state: CircuitBreakerState) {
@@ -111,9 +114,22 @@ class MyCircuitBreaker(
     }
 
     fun update() {
-        if (state == CircuitBreakerState.OPEN && System.currentTimeMillis() - lastStateChangeTime >= resetTimeoutMs) {
+        if (state.get() == CircuitBreakerState.OPEN && System.currentTimeMillis() - lastStateChangeTime.get() >= resetTimeoutMs) {
             transitionToHalfOpen()
         }
+    }
+
+    fun destroy() {
+        logger.info("Shutting down the CircuitBreaker executor")
+        executor.shutdown()
+//        try {
+//            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+//                executor.shutdownNow()
+//            }
+//        } catch (e: InterruptedException) {
+//            executor.shutdownNow()
+//            Thread.currentThread().interrupt()
+//        }
     }
 }
 
