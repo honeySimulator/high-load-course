@@ -78,7 +78,7 @@ class PaymentExternalServiceImpl(
             }
             return
         }
-        logger.info("[$accountName] Submit for $paymentId , txId: $transactionId")
+        logger.warn("[$accountName] Submit for $paymentId , txId: $transactionId")
 
         // Вне зависимости от исхода оплаты важно отметить что она была отправлена.
         // Это требуется сделать ВО ВСЕХ СЛУЧАЯХ, поскольку эта информация используется сервисом тестирования.
@@ -154,35 +154,35 @@ class PaymentExternalServiceImpl(
     }
 
     fun destroy() {
-        logger.info("Shutting down the callback executor")
+        logger.warn("Shutting down the callback executor")
         callbackExecutor.shutdown()
 //        try {
 //        if (!callbackExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
 //            logger.warn("Callback executor did not terminate within the specified time")
 //            callbackExecutor.shutdownNow()
-//            logger.info("Forcibly shut down the callback executor")
+//            logger.warn("Forcibly shut down the callback executor")
 //        }
 //    } catch (e: InterruptedException) {
 //        logger.error("Interrupted while waiting for callback executor to terminate", e)
 //        callbackExecutor.shutdownNow()
-//        logger.info("Forcibly shut down the callback executor after interruption")
+//        logger.warn("Forcibly shut down the callback executor after interruption")
 //        Thread.currentThread().interrupt()
 //    }
-        logger.info("Shutting down the client dispatcher executor")
+        logger.warn("Shutting down the client dispatcher executor")
         client.dispatcher.executorService.shutdown()
 //        try {
 //        if (!client.dispatcher.executorService.awaitTermination(60, TimeUnit.SECONDS)) {
 //            logger.warn("Client dispatcher executor did not terminate within the specified time")
 //            client.dispatcher.executorService.shutdownNow()
-//            logger.info("Forcibly shut down the client dispatcher executor")
+//            logger.warn("Forcibly shut down the client dispatcher executor")
 //        }
 //    } catch (e: InterruptedException) {
 //        logger.error("Interrupted while waiting for client dispatcher executor to terminate", e)
 //        client.dispatcher.executorService.shutdownNow()
-//        logger.info("Forcibly shut down the client dispatcher executor after interruption")
+//        logger.warn("Forcibly shut down the client dispatcher executor after interruption")
 //        Thread.currentThread().interrupt()
 //    }
-//        logger.info("Callback executor and client dispatcher executor have been shut down")
+//        logger.warn("Callback executor and client dispatcher executor have been shut down")
     }
 }
 

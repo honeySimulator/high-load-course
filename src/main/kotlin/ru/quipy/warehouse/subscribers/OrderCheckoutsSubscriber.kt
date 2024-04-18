@@ -44,7 +44,7 @@ class OrderCheckoutsSubscriber {
                             event.orderId,
                             products = event.items.map { BookProductRequest(it.productId, it.amount) })
                     }
-                    logger.info("Order ${event.orderId} booking created: ${createdEvent.bookingId}")
+                    logger.warn("Order ${event.orderId} booking created: ${createdEvent.bookingId}")
                 }
             }
 

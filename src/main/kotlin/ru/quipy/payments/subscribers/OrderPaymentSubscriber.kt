@@ -50,7 +50,7 @@ class OrderPaymentSubscriber {
                             event.amount
                         )
                     }
-                    logger.info("Payment ${createdEvent.paymentId} for order ${event.orderId} created.")
+                    logger.warn("Payment ${createdEvent.paymentId} for order ${event.orderId} created.")
 
                     paymentService.submitPaymentRequest(createdEvent.paymentId, event.amount, event.createdAt)
                 }

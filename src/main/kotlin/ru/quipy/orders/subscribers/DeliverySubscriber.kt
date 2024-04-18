@@ -37,11 +37,11 @@ class DeliverySubscriber {
         ) {
             `when`(DeliveryCreatedEvent::class) { event ->
                 appExecutor.submit {
-                    logger.info("Started setting delivery ${event.deliveryId} for order ${event.orderId}")
+                    logger.warn("Started setting delivery ${event.deliveryId} for order ${event.orderId}")
                     ordersESService.update(event.orderId) {
                         it.setDelivery(event.deliveryId)
                     }
-                    logger.info("Delivery ${event.deliveryId} set for order ${event.orderId}")
+                    logger.warn("Delivery ${event.deliveryId} set for order ${event.orderId}")
                 }
             }
         }

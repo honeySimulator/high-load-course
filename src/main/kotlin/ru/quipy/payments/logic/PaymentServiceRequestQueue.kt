@@ -17,7 +17,7 @@ class PaymentServiceRequestQueue(
     var fallback : (request: PaymentRequest) -> Unit = {}
 
     fun tryEnqueue(request: PaymentRequest): Boolean {
-        logger.info("Attempting to enqueue payment request: ${request.paymentId}")
+        logger.warn("Attempting to enqueue payment request: ${request.paymentId}")
 
         // Проверка, может ли быть выполнена операция через блокировку цепи
         if (!paymentServiceConfig.circuitBreaker.canMakeCall()) {
@@ -33,13 +33,13 @@ class PaymentServiceRequestQueue(
 
         // Вычисление, сколько задач может быть поставлено в очередь до истечения времени ожидания операции
         val canWait = (paymentOperationTimeout.toMillis() - timePassed) / 1000.0
-
+        val currentThread = Thread.currentThread()
+        logger.warn("Current thread: id=${currentThread.id}, name=${currentThread.name}, priority=${currentThread.priority}")
         // Проверка, может ли запрос быть поставлен в очередь на основе времени, прошедшего и ожидаемого времени обработки
-        if (timePassed < expectedProcessingTime && canWait >= 1) {
             // Попытка поместить задачу в окно
             val windowResponse = paymentServiceConfig.window.putIntoWindow()
-            if (windowResponse is NonBlockingOngoingWindow.WindowResponse.Success) {
-                logger.info("Successfully put payment request into the queue: ${request.paymentId}")
+            if (NonBlockingOngoingWindow.WindowResponse.Success::class.java.isInstance(windowResponse)) {
+                logger.warn("Successfully put payment request into the queue: ${request.paymentId}")
                 // Если задача успешно помещена в окно, отправка ее в очередь
                 queueExecutor.submit { queueJob(request) }
                 return true
@@ -47,16 +47,15 @@ class PaymentServiceRequestQueue(
                 logger.warn("Failed to put payment request into the queue due to window being full: ${request.paymentId}")
                 return false
             }
-        } else {
-            logger.warn("Payment request ${request.paymentId} has been waiting for too long, not enqueuing")
-            return false
-        }
+        
     }
 
 
             private fun queueJob(request: PaymentRequest) {
         try {
-            logger.info("Processing payment request: ${request.paymentId}")
+            val currentThread = Thread.currentThread()
+            logger.warn("Current thread: id=${currentThread.id}, name=${currentThread.name}, priority=${currentThread.priority}")
+            logger.warn("Processing payment request: ${request.paymentId}")
             paymentServiceConfig.circuitBreaker.submitExecution()
             paymentServiceConfig.rateLimiter.tickBlocking()
             paymentServiceConfig.service.submitPaymentRequest(request.paymentId, request.amount, request.paymentStartedAt, paymentServiceConfig.window, paymentServiceConfig.circuitBreaker)
@@ -68,12 +67,12 @@ class PaymentServiceRequestQueue(
         } finally {
             // Release the window after the job is done or if an error occurred
             paymentServiceConfig.window.releaseWindow()
-            logger.info("Window size released")
+            logger.warn("Window size released")
         }
     }
 
     fun destroy() {
-        logger.info("Shutting down the queue executor")
+        logger.warn("Shutting down the queue executor")
         queueExecutor.shutdown()
 //        try {
 //        // Ожидание завершения всех задач в queueExecutor
@@ -81,16 +80,16 @@ class PaymentServiceRequestQueue(
 //            logger.warn("Queue executor did not terminate within the specified time")
 //            // Принудительное завершение queueExecutor, если не удалось дождаться завершения задач
 //            queueExecutor.shutdownNow()
-//            logger.info("Forcibly shut down the queue executor")
+//            logger.warn("Forcibly shut down the queue executor")
 //        }
 //    } catch (e: InterruptedException) {
 //        logger.error("Interrupted while waiting for queue executor to terminate", e)
 //        // Принудительное завершение queueExecutor при возникновении исключения
 //        queueExecutor.shutdownNow()
-//        logger.info("Forcibly shut down the queue executor after interruption")
+//        logger.warn("Forcibly shut down the queue executor after interruption")
 //        Thread.currentThread().interrupt()
 //    }
-//    logger.info("Queue executor has been shut down")
+//    logger.warn("Queue executor has been shut down")
 
         paymentServiceConfig.service.destroy()
 

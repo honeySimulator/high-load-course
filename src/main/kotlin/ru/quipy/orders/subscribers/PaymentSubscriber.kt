@@ -37,7 +37,7 @@ class PaymentSubscriber {
                     ordersESService.update(event.orderId) {
                         it.setPaymentResults(event.paymentId, event.success, event.transactionId, event.reason)
                     }
-                    logger.info("Payment results. OrderId ${event.orderId}, succeeded: ${event.success}, txId: ${event.transactionId}, reason: ${event.reason}, duration: ${Duration.ofMillis(event.createdAt - event.submittedAt).toSeconds()}, spent in queue: ${event.spentInQueueDuration.toSeconds()}")
+                    logger.warn("Payment results. OrderId ${event.orderId}, succeeded: ${event.success}, txId: ${event.transactionId}, reason: ${event.reason}, duration: ${Duration.ofMillis(event.createdAt - event.submittedAt).toSeconds()}, spent in queue: ${event.spentInQueueDuration.toSeconds()}")
                 }
             }
         }

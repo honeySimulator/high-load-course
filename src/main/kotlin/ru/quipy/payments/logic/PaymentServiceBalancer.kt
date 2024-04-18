@@ -19,7 +19,7 @@ class PaymentServiceBalancer(
     private val logger = LoggerFactory.getLogger(PaymentServiceBalancer::class.java)
 
     init {
-        logger.info("Initializing payment service queues")
+        logger.warn("Initializing payment service queues")
         queues.forEach { x ->
             x.fallback = { request: PaymentRequest ->
                 submitPaymentRequest(
@@ -29,12 +29,12 @@ class PaymentServiceBalancer(
                 )
             }
         }
-        logger.info("Payment service queues initialized")
+        logger.warn("Payment service queues initialized")
     }
 
     override fun submitPaymentRequest(paymentId: UUID, amount: Int, paymentStartedAt: Long) {
         val request = PaymentRequest(paymentId, amount, paymentStartedAt)
-        logger.info("Starting to try enqueue payment request: $paymentId")
+        logger.warn("Starting to try enqueue payment request: $paymentId")
         queues.forEach {
             if (it.tryEnqueue(request)) {
                 logger.warn("$paymentId can be placed in ${it.accountName}")
@@ -42,7 +42,7 @@ class PaymentServiceBalancer(
             }
         }
 
-        logger.info("$paymentId cannot be placed in any queue")
+        logger.warn("$paymentId cannot be placed in any queue")
         paymentESService.update(paymentId) {
             it.logProcessing(
                 false,

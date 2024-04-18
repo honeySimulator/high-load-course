@@ -78,18 +78,18 @@ class ExternalServicesConfig(
     fun fastExternalService() =
         PaymentServiceBalancer(
             listOf(
-                ServiceConfigurer(
-                    PaymentExternalServiceImpl(accountProps_2, paymentESService),
-                    RateLimiter(accountProps_2.rateLimitPerSec, TimeUnit.SECONDS),
-                    NonBlockingOngoingWindow(accountProps_2.parallelRequests),
-                    circuitBreaker2
-                ),
-                ServiceConfigurer(
-                    PaymentExternalServiceImpl(accountProps_3, paymentESService),
-                    RateLimiter(accountProps_3.rateLimitPerSec, TimeUnit.SECONDS),
-                    NonBlockingOngoingWindow(accountProps_3.parallelRequests),
-                    circuitBreaker3
-                ),
+//                ServiceConfigurer(
+//                    PaymentExternalServiceImpl(accountProps_2, paymentESService),
+//                    RateLimiter(accountProps_2.rateLimitPerSec, TimeUnit.SECONDS),
+//                    NonBlockingOngoingWindow(accountProps_2.parallelRequests),
+//                    circuitBreaker2
+//                ),
+//                ServiceConfigurer(
+//                    PaymentExternalServiceImpl(accountProps_3, paymentESService),
+//                    RateLimiter(accountProps_3.rateLimitPerSec, TimeUnit.SECONDS),
+//                    NonBlockingOngoingWindow(accountProps_3.parallelRequests),
+//                    circuitBreaker3
+//                ),
                 ServiceConfigurer(
                     PaymentExternalServiceImpl(accountProps_4, paymentESService),
                     RateLimiter(accountProps_4.rateLimitPerSec, TimeUnit.SECONDS),

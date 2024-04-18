@@ -120,7 +120,7 @@ class MyCircuitBreaker(
     }
 
     fun destroy() {
-        logger.info("Shutting down the CircuitBreaker executor")
+        logger.warn("Shutting down the CircuitBreaker executor")
         executor.shutdown()
 //        try {
 //            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {

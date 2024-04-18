@@ -31,7 +31,7 @@ class CatalogCreator {
     fun init() {
         subscriptionsManager.createSubscriber(ProductAggregate::class, "wh-catalog-creator-subscriber", retryConf = RetryConf(1, RetryFailedStrategy.SKIP_EVENT)) {
             `when`(ProductCreatedEvent::class) { event ->
-                logger.info("Product created: {}", event.title)
+                logger.warn("Product created: {}", event.title)
                 productRepository.save(Product(event.id, event.title))
             }
         }

@@ -175,11 +175,11 @@ class APIController {
     @PostMapping("/orders/{orderId}/bookings")
     suspend fun startCheckout(@PathVariable orderId: UUID): Any {
         try {
-            logger.info("Checkout initiated for order $orderId")
+            logger.warn("Checkout initiated for order $orderId")
             val event = ordersESService.update(orderId) {
                 it.checkout()
             }
-            logger.info("Checkout started ${event.bookingId} for order $orderId")
+            logger.warn("Checkout started ${event.bookingId} for order $orderId")
             return BookingDto(
                 event.bookingId,
                 emptySet()

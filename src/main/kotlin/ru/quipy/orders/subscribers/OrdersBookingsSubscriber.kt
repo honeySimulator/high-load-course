@@ -34,7 +34,7 @@ class OrdersBookingsSubscriber {
         subscriptionsManager.createSubscriber(BookingAggregate::class, "orders:bookings-subscriber", retryConf = RetryConf(1, RetryFailedStrategy.SKIP_EVENT)) {
             `when`(BookingSucceededEvent::class) { event ->
                 appExecutor.submit {
-                    logger.info("[Order service] Booking success for ${event.orderId}")
+                    logger.warn("[Order service] Booking success for ${event.orderId}")
                     ordersESService.update(event.orderId) {
                         it.setBookingResults(event.bookingId, true, event.succeededProducts.sumOf { it.amount * it.price })
                     }
@@ -43,7 +43,7 @@ class OrdersBookingsSubscriber {
 
             `when`(BookingFailedEvent::class) { event ->
                 appExecutor.submit {
-                    logger.info("[Order service] Booking failed for ${event.orderId}")
+                    logger.warn("[Order service] Booking failed for ${event.orderId}")
                     ordersESService.update(event.orderId) {
                         it.setBookingResults(event.bookingId, false)
                     }

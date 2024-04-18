@@ -53,7 +53,7 @@ class WarehouseBalanceService {
                 if (product.isPresent) return@`when`
 
                 productBalanceRepository.save(ProductBalance(event.productID, event.title, event.price, 10_000_000))
-                logger.info("Wh balance increase for product: ${event.title}, amount: 10_000")
+                logger.warn("Wh balance increase for product: ${event.title}, amount: 10_000")
             }
         }
 
@@ -64,7 +64,7 @@ class WarehouseBalanceService {
         ) {
             `when`(BookingCreatedEvent::class) { event ->
                 appExecutor.submit {
-                    logger.info("Booking created: ${event.bookingId} for order ${event.orderId} products: ${event.products}")
+                    logger.warn("Booking created: ${event.bookingId} for order ${event.orderId} products: ${event.products}")
 
                     event.products.map {
                         val dbProduct = productBalanceRepository.findById(it.productId).get()
@@ -88,7 +88,7 @@ class WarehouseBalanceService {
                             }
                         )
 
-                        logger.info(
+                        logger.warn(
                             "Booking succeeded. ${event.bookingId}. Products: ${
                                 booked.map { it.productId }.toList()
                             }"
@@ -98,7 +98,7 @@ class WarehouseBalanceService {
 
                 // we don't need real-life booking strategy for the fault-tolerance course
 //                coroutineMutex.withLock {
-//                    logger.info("Booking created: ${event.bookingId} for order ${event.orderId} products: ${event.products}")
+//                    logger.warn("Booking created: ${event.bookingId} for order ${event.orderId} products: ${event.products}")
 //                    val succeeded = mutableListOf<BookedProduct>()
 //                    val failed = mutableListOf<FailedProduct>()
 //                    event.products.forEach { product ->
@@ -111,7 +111,7 @@ class WarehouseBalanceService {
 //                            } else {
 //                                balance.amount -= product.amount
 //                                productBalanceRepository.save(balance)
-//                                logger.info("For product ${balance.id} booked ${product.amount} items")
+//                                logger.warn("For product ${balance.id} booked ${product.amount} items")
 //                                succeeded.add(BookedProduct(product.productId, dbProduct.get().price, product.amount))
 //                            }
 //                        } else {
@@ -136,13 +136,13 @@ class WarehouseBalanceService {
 //                            it.succeeded(succeeded)
 //                        }
 //
-//                        logger.info("Booking ${event.bookingId} succeeded")
+//                        logger.warn("Booking ${event.bookingId} succeeded")
 //                    } else {
 //                        succeeded.forEach { product ->
 //                            productBalanceRepository.findById(product.productId).map {
 //                                it.amount += product.amount
 //                                productBalanceRepository.save(it)
-//                                logger.info("For product ${product.productId} unbooked ${product.amount} items")
+//                                logger.warn("For product ${product.productId} unbooked ${product.amount} items")
 //                            }
 //                            bookingLogRepository.save(
 //                                BookingLogRecord(
@@ -172,7 +172,7 @@ class WarehouseBalanceService {
 //                        bookingESService.update(event.bookingId) {
 //                            it.failed(failed)
 //                        }
-//                        logger.info("Booking ${event.bookingId} failed")
+//                        logger.warn("Booking ${event.bookingId} failed")
 //                    }
 //                }
             }
