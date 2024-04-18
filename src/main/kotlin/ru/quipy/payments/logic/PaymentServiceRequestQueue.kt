@@ -32,12 +32,13 @@ class PaymentServiceRequestQueue(
         val expectedProcessingTime = paymentServiceConfig.service.requestAverageProcessingTime.toMillis() / paymentServiceConfig.service.speed
 
         // Вычисление, сколько задач может быть поставлено в очередь до истечения времени ожидания операции
-        val canWait = (paymentOperationTimeout.toMillis() - timePassed) / 1000.0
-        val currentThread = Thread.currentThread()
-        logger.warn("Current thread: id=${currentThread.id}, name=${currentThread.name}, priority=${currentThread.priority}")
+        val canWait = paymentOperationTimeout.toMillis()/ timePassed
+        logger.warn("canWait: ${canWait}, expectedProcessingTime: ${expectedProcessingTime}, timePassed: ${timePassed}, requestAverageProcessingTime: ${paymentServiceConfig.service.requestAverageProcessingTime.toMillis()}")
+
         // Проверка, может ли запрос быть поставлен в очередь на основе времени, прошедшего и ожидаемого времени обработки
             // Попытка поместить задачу в окно
-            val windowResponse = paymentServiceConfig.window.putIntoWindow()
+        if (timePassed < expectedProcessingTime && canWait >= 1) {
+        val windowResponse = paymentServiceConfig.window.putIntoWindow()
             if (NonBlockingOngoingWindow.WindowResponse.Success::class.java.isInstance(windowResponse)) {
                 logger.warn("Successfully put payment request into the queue: ${request.paymentId}")
                 // Если задача успешно помещена в окно, отправка ее в очередь
@@ -47,14 +48,16 @@ class PaymentServiceRequestQueue(
                 logger.warn("Failed to put payment request into the queue due to window being full: ${request.paymentId}")
                 return false
             }
+        } else {
+            logger.warn("Payment request ${request.paymentId} has been waiting for too long, not enqueuing")
+            return false
+        }
         
     }
 
 
             private fun queueJob(request: PaymentRequest) {
         try {
-            val currentThread = Thread.currentThread()
-            logger.warn("Current thread: id=${currentThread.id}, name=${currentThread.name}, priority=${currentThread.priority}")
             logger.warn("Processing payment request: ${request.paymentId}")
             paymentServiceConfig.circuitBreaker.submitExecution()
             paymentServiceConfig.rateLimiter.tickBlocking()

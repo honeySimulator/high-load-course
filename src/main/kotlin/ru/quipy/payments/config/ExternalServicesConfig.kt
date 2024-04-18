@@ -34,7 +34,7 @@ class ExternalServicesConfig(
             "test",
             "default-2",
             parallelRequests = 100,
-            rateLimitPerSec = 30,
+            rateLimitPerSec = 60,
             request95thPercentileProcessingTime = Duration.ofMillis(10_000),
             cost = 70
         )
@@ -43,8 +43,8 @@ class ExternalServicesConfig(
             // Call costs 40
             "test",
             "default-3",
-            parallelRequests = 30,
-            rateLimitPerSec = 8,
+            parallelRequests = 10,
+            rateLimitPerSec = 7,
             request95thPercentileProcessingTime = Duration.ofMillis(10_000),
             cost = 40
         )
@@ -54,7 +54,7 @@ class ExternalServicesConfig(
             "test",
             "default-42",
             parallelRequests = 8,
-            rateLimitPerSec = 5,
+            rateLimitPerSec = 7,
             request95thPercentileProcessingTime = Duration.ofMillis(10_000),
             cost = 35
         )
@@ -63,33 +63,33 @@ class ExternalServicesConfig(
             "test",
             "default-5",
             parallelRequests = 8,
-            rateLimitPerSec = 5,
+            rateLimitPerSec = 7,
             request95thPercentileProcessingTime = Duration.ofMillis(10_000),
             cost = 30
         )
     }
 
-    private val circuitBreaker2 = MyCircuitBreaker("account2-breaker", 0.2, 50, 20_000)
-    private val circuitBreaker3 = MyCircuitBreaker("account3-breaker", 0.2, 50, 20_000)
-    private val circuitBreaker4 = MyCircuitBreaker("account42-breaker", 0.2, 30, 20_000)
-    private val circuitBreaker5 = MyCircuitBreaker("account5-breaker", 0.2, 30, 20_000)
+    private val circuitBreaker2 = MyCircuitBreaker("account2-breaker", 0.2, 130, 20_000)
+    private val circuitBreaker3 = MyCircuitBreaker("account3-breaker", 0.2, 35, 20_000)
+    private val circuitBreaker4 = MyCircuitBreaker("account42-breaker", 0.2, 10, 20_000)
+    private val circuitBreaker5 = MyCircuitBreaker("account5-breaker", 0.2, 10, 20_000)
 
     @Bean(PRIMARY_PAYMENT_BEAN)
     fun fastExternalService() =
         PaymentServiceBalancer(
             listOf(
-//                ServiceConfigurer(
-//                    PaymentExternalServiceImpl(accountProps_2, paymentESService),
-//                    RateLimiter(accountProps_2.rateLimitPerSec, TimeUnit.SECONDS),
-//                    NonBlockingOngoingWindow(accountProps_2.parallelRequests),
-//                    circuitBreaker2
-//                ),
-//                ServiceConfigurer(
-//                    PaymentExternalServiceImpl(accountProps_3, paymentESService),
-//                    RateLimiter(accountProps_3.rateLimitPerSec, TimeUnit.SECONDS),
-//                    NonBlockingOngoingWindow(accountProps_3.parallelRequests),
-//                    circuitBreaker3
-//                ),
+                ServiceConfigurer(
+                    PaymentExternalServiceImpl(accountProps_2, paymentESService),
+                    RateLimiter(accountProps_2.rateLimitPerSec, TimeUnit.SECONDS),
+                    NonBlockingOngoingWindow(accountProps_2.parallelRequests),
+                    circuitBreaker2
+                ),
+                ServiceConfigurer(
+                    PaymentExternalServiceImpl(accountProps_3, paymentESService),
+                    RateLimiter(accountProps_3.rateLimitPerSec, TimeUnit.SECONDS),
+                    NonBlockingOngoingWindow(accountProps_3.parallelRequests),
+                    circuitBreaker3
+                ),
                 ServiceConfigurer(
                     PaymentExternalServiceImpl(accountProps_4, paymentESService),
                     RateLimiter(accountProps_4.rateLimitPerSec, TimeUnit.SECONDS),
