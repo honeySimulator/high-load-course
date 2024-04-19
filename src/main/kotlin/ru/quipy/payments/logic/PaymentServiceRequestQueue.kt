@@ -25,17 +25,17 @@ class PaymentServiceRequestQueue(
             return false
         }
 
-        // Вычисление времени, прошедшего с момента начала оплаты
+        // Время, прошедшее с момента начала оплаты
         val timePassed = now() - request.paymentStartedAt
 
-        // Вычисление ожидаемого времени обработки запроса, учитывая скорость обработки
+        // Ожидаемое время обработки запроса, учитывая скорость обработки
         val expectedProcessingTime = paymentServiceConfig.service.requestAverageProcessingTime.toMillis() / paymentServiceConfig.service.speed
 
-        // Вычисление, сколько задач может быть поставлено в очередь до истечения времени ожидания операции
+        //Коэффициент, показывающий, может ли клиент дождаться результата обработки запроса в течение времени, установленного в paymentOperationTimeout
         val canWait = paymentOperationTimeout.toMillis()/ timePassed
         logger.warn("canWait: ${canWait}, expectedProcessingTime: ${expectedProcessingTime}, timePassed: ${timePassed}, requestAverageProcessingTime: ${paymentServiceConfig.service.requestAverageProcessingTime.toMillis()}")
 
-        // Проверка, может ли запрос быть поставлен в очередь на основе времени, прошедшего и ожидаемого времени обработки
+        // Сравниваем ожидаемое время обработки запроса с актуальным и проверяем укладываемся ли в таймаут
             // Попытка поместить задачу в окно
         if (timePassed < expectedProcessingTime && canWait >= 1) {
         val windowResponse = paymentServiceConfig.window.putIntoWindow()
