@@ -15,6 +15,7 @@ class PaymentServiceRequestQueue(
     private val queueExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors(), NamedThreadFactory("payment-queue-$accountName"))
     private val logger = LoggerFactory.getLogger(PaymentServiceRequestQueue::class.java)
     var fallback : (request: PaymentRequest) -> Unit = {}
+    val transactionTimes: MutableList<Long> = mutableListOf()
 
     fun tryEnqueue(request: PaymentRequest): Boolean {
         logger.warn("Attempting to enqueue payment request: ${request.paymentId}")
@@ -43,6 +44,10 @@ class PaymentServiceRequestQueue(
                 logger.warn("Successfully put payment request into the queue: ${request.paymentId}")
                 // Если задача успешно помещена в окно, отправка ее в очередь
                 queueExecutor.submit { queueJob(request) }
+                transactionTimes.add(now() - request.paymentStartedAt)
+                logger.warn("Среднее время транзакций: " + transactionTimes.average() + "\n" +
+                        "Ожидаемое время транзацкии: " + expectedProcessingTime + "\n" +
+                        "Скорость: " + paymentServiceConfig.service.speed)
                 return true
             } else {
                 logger.warn("Failed to put payment request into the queue due to window being full: ${request.paymentId}")
