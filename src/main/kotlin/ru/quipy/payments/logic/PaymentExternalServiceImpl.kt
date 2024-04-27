@@ -44,8 +44,8 @@ class PaymentExternalServiceImpl(
 
     private val client = OkHttpClient.Builder().run {
         dispatcher(Dispatcher().apply {
-            maxRequests = properties.parallelRequests
-            maxRequestsPerHost = properties.parallelRequests
+            maxRequests = 25
+            maxRequestsPerHost = 25
         })
         connectionPool(
             ConnectionPool(

@@ -31,13 +31,13 @@ class PaymentServiceRequestQueue(
         // Ожидаемое время обработки запроса, учитывая скорость обработки
         val expectedProcessingTime = paymentServiceConfig.service.requestAverageProcessingTime.toMillis() / paymentServiceConfig.service.speed
 
-        //Коэффициент, показывающий, может ли клиент дождаться результата обработки запроса в течение времени, установленного в paymentOperationTimeout
+        //Параметр, показывающий, может ли клиент дождаться результата обработки запроса в течение времени, установленного в paymentOperationTimeout
         val canWait = paymentOperationTimeout.toMillis()/ timePassed
         logger.warn("canWait: ${canWait}, expectedProcessingTime: ${expectedProcessingTime}, timePassed: ${timePassed}, requestAverageProcessingTime: ${paymentServiceConfig.service.requestAverageProcessingTime.toMillis()}")
 
         // Сравниваем ожидаемое время обработки запроса с актуальным и проверяем укладываемся ли в таймаут
             // Попытка поместить задачу в окно
-        if (timePassed < expectedProcessingTime && canWait >= 1) {
+        if ((timePassed + expectedProcessingTime) <80000 && canWait >= 1) {
         val windowResponse = paymentServiceConfig.window.putIntoWindow()
             if (NonBlockingOngoingWindow.WindowResponse.Success::class.java.isInstance(windowResponse)) {
                 logger.warn("Successfully put payment request into the queue: ${request.paymentId}")
@@ -58,10 +58,23 @@ class PaymentServiceRequestQueue(
 
             private fun queueJob(request: PaymentRequest) {
         try {
-            logger.warn("Processing payment request: ${request.paymentId}")
-            paymentServiceConfig.circuitBreaker.submitExecution()
-            paymentServiceConfig.rateLimiter.tickBlocking()
-            paymentServiceConfig.service.submitPaymentRequest(request.paymentId, request.amount, request.paymentStartedAt, paymentServiceConfig.window, paymentServiceConfig.circuitBreaker)
+            val timePassed = now() - request.paymentStartedAt
+val avg = paymentServiceConfig.service.requestAverageProcessingTime.toMillis()
+    val speed_cr = paymentServiceConfig.service.speed
+            val expectedProcessingTime = paymentServiceConfig.service.requestAverageProcessingTime.toMillis()
+            logger.warn("requestAverageProcessingTime: ${avg}, service.speed: ${speed_cr}")
+            if ((timePassed + expectedProcessingTime) <80000 ) {
+                logger.warn("Processing payment request: ${request.paymentId}")
+                paymentServiceConfig.circuitBreaker.submitExecution()
+                paymentServiceConfig.rateLimiter.tickBlocking()
+                paymentServiceConfig.service.submitPaymentRequest(
+                    request.paymentId,
+                    request.amount,
+                    request.paymentStartedAt,
+                    paymentServiceConfig.window,
+                    paymentServiceConfig.circuitBreaker
+                )
+            }
         } catch (e: CircuitBreakerOpenException) {
             logger.error("Circuit breaker is open, falling back for payment request: ${request.paymentId}")
             fallback(request)

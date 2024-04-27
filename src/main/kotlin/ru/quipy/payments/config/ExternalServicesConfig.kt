@@ -35,7 +35,7 @@ class ExternalServicesConfig(
             "default-2",
             parallelRequests = 100,
             rateLimitPerSec = 60,
-            request95thPercentileProcessingTime = Duration.ofMillis(10_000),
+            request95thPercentileProcessingTime = Duration.ofMillis(5_000),
             cost = 70
         )
 
@@ -96,12 +96,12 @@ class ExternalServicesConfig(
                     NonBlockingOngoingWindow(accountProps_4.parallelRequests),
                     circuitBreaker4
                 ),
-                ServiceConfigurer(
-                    PaymentExternalServiceImpl(accountProps_5, paymentESService),
-                    RateLimiter(accountProps_5.rateLimitPerSec, TimeUnit.SECONDS),
-                    NonBlockingOngoingWindow(accountProps_5.parallelRequests),
-                    circuitBreaker5
-                ),
+//                ServiceConfigurer(
+//                    PaymentExternalServiceImpl(accountProps_5, paymentESService),
+//                    RateLimiter(accountProps_5.rateLimitPerSec, TimeUnit.SECONDS),
+//                    NonBlockingOngoingWindow(accountProps_5.parallelRequests),
+//                    circuitBreaker5
+//                ),
             ),
             paymentESService
         )
